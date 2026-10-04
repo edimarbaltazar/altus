@@ -43,8 +43,12 @@ Deno.serve(async (req) => {
     const p = String(placa ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (!/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(p)) return json({ erro: "Placa inválida. Use o formato ABC1D23 ou ABC1234." }, 400);
 
-    const tpl = Deno.env.get("PLACA_URL"), tok = Deno.env.get("PLACA_TOKEN") ?? "";
-    if (!tpl) return json({ erro: "A consulta por placa ainda não foi ativada no Altus." }, 501);
+    let tpl = Deno.env.get("PLACA_URL") ?? "", tok = Deno.env.get("PLACA_TOKEN") ?? "";
+    if (!tpl || !tok) {
+      const { data: cfg } = await sb.from("config_servidor").select("chave, valor").in("chave", ["PLACA_URL", "PLACA_TOKEN"]);
+      for (const c of cfg ?? []) { if (c.chave === "PLACA_URL" && !tpl) tpl = c.valor; if (c.chave === "PLACA_TOKEN" && !tok) tok = c.valor; }
+    }
+    if (!tpl) return json({ erro: "A consulta por placa ainda não foi ativada no Altus. Preencha os dados à mão." }, 501);
 
     const { data: of } = await sb.from("oficinas").select("id, planos(consultas_placa_mes)").eq("id", m.oficina_id).single();
     const mes = new Date().toISOString().slice(0, 7) + "-01";
