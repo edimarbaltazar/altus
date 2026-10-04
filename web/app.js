@@ -333,16 +333,7 @@ function telaNovo() {
     <input type="file" id="arq" accept="image/*" multiple hidden>
     <div class="miniaturas" id="minis"></div>
     <header><h2>Marcar danos</h2><span class="small muted">O Altus monta o orçamento pelo histórico de 15.500 decisões reais.</span></header>
-    <div class="marcar">
-      <label class="f" style="grid-column:span 2">Peça<input id="mpeca" list="mvocab" placeholder="PARALAMA DIANT" autocomplete="off"><datalist id="mvocab"></datalist></label>
-      <label class="f">Lado<select id="mlado"><option value="">Central</option><option>ESQ</option><option>DIR</option></select></label>
-      <label class="f">Material<select id="mmat"><option value="METAL">Metal</option><option value="PLASTICO">Plástico</option><option value="VIDRO">Vidro</option><option value="OUTRO">Outro</option></select></label>
-      <label class="f">Dano<select id="mtipo"><option>amassado</option><option>riscado</option><option>trincado</option><option>quebrado</option><option>rasgado</option><option>deformado</option><option>solto</option><option value="sem dano">sem dano (só remover e instalar)</option></select></label>
-      <label class="f">Gravidade<select id="msev"><option value="LEVE">Leve</option><option value="MEDIO" selected>Médio</option><option value="GRAVE">Grave</option></select></label>
-      <label class="chk-l"><input type="checkbox" id="mpint" checked> Pintura danificada</label>
-      <label class="chk-l"><input type="checkbox" id="mvinco"> Com vinco ou dobra</label>
-      <button type="button" class="btn" id="madd">Adicionar dano</button>
-    </div>
+    ${htmlMarcar("Adicionar dano")}
     <ul class="mlista" id="mlista"></ul>
     <div class="progresso" id="prog" hidden>
       <div class="passo" id="p1"><i></i><span>Enviando fotos</span></div>
@@ -387,15 +378,7 @@ function telaNovo() {
     $("#mlista").innerHTML = danosMarcados.map((d, i) => `<li><span><b>${esc(d.peca)}${d.lado ? " " + d.lado : ""}</b> · ${esc(d.tipo_dano)}, ${d.severidade.toLowerCase()}${d.pintura_danificada ? ", pintura danificada" : ""}${d.vinco_ou_dobra ? ", com vinco" : ""}</span><button type="button" class="x" data-i="${i}" aria-label="Remover dano">×</button></li>`).join("");
     $$("#mlista .x").forEach((b) => (b.onclick = () => { danosMarcados.splice(+b.dataset.i, 1); desenharDanos(); }));
   };
-  $("#madd").onclick = () => {
-    const peca = $("#mpeca").value.trim().toUpperCase();
-    if (!peca) { $("#mpeca").focus(); return; }
-    danosMarcados.push({ peca, lado: $("#mlado").value, material: $("#mmat").value, tipo_dano: $("#mtipo").value, severidade: $("#msev").value, pintura_danificada: $("#mtipo").value !== "sem dano" && $("#mpint").checked, vinco_ou_dobra: $("#mtipo").value !== "sem dano" && $("#mvinco").checked });
-    $("#mpeca").value = ""; $("#mvinco").checked = false; desenharDanos(); $("#mpeca").focus();
-  };
-  $("#mpeca").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#madd").click(); } });
-  api.funcao("orcar", { info: true }).then((r) => {
-    $("#mvocab").innerHTML = (r.vocabulario || []).map((p) => `<option value="${esc(p)}">`).join("");
+  ligarMarcar((d) => { danosMarcados.push(d); desenharDanos(); }).then((r) => {
     if (!r.ia) { $("#ia-aviso").hidden = false; $("#ia").disabled = true; }
   }).catch(() => {});
   const fotos = [];
@@ -521,6 +504,40 @@ function calcular(itens, tx, cortes = CORTE_PADRAO, terceiros = 0) {
   return t;
 }
 
+// ---------- marcar danos (novo orçamento e "adicionar peça" no editor) ----------
+let vocabPromessa = null;
+function carregarVocab() {
+  if (!vocabPromessa) vocabPromessa = api.funcao("orcar", { info: true }).catch((e) => { vocabPromessa = null; throw e; });
+  return vocabPromessa;
+}
+function htmlMarcar(rotulo) {
+  return `<div class="marcar">
+      <label class="f" style="grid-column:span 2">Peça<input id="mpeca" list="mvocab" placeholder="PARALAMA DIANT" autocomplete="off"><datalist id="mvocab"></datalist></label>
+      <label class="f">Lado<select id="mlado"><option value="">Central</option><option>ESQ</option><option>DIR</option></select></label>
+      <label class="f">Material<select id="mmat"><option value="METAL">Metal</option><option value="PLASTICO">Plástico</option><option value="VIDRO">Vidro</option><option value="OUTRO">Outro</option></select></label>
+      <label class="f">Dano<select id="mtipo"><option>amassado</option><option>riscado</option><option>trincado</option><option>quebrado</option><option>rasgado</option><option>deformado</option><option>solto</option><option value="sem dano">sem dano (só remover e instalar)</option></select></label>
+      <label class="f">Gravidade<select id="msev"><option value="LEVE">Leve</option><option value="MEDIO" selected>Médio</option><option value="GRAVE">Grave</option></select></label>
+      <label class="chk-l"><input type="checkbox" id="mpint" checked> Pintura danificada</label>
+      <label class="chk-l"><input type="checkbox" id="mvinco"> Com vinco ou dobra</label>
+      <button type="button" class="btn" id="madd">${rotulo}</button>
+    </div>`;
+}
+// liga os campos do painel; onAdd recebe o dano marcado
+function ligarMarcar(onAdd) {
+  $("#madd").onclick = () => {
+    const peca = $("#mpeca").value.trim().toUpperCase();
+    if (!peca) { $("#mpeca").focus(); return; }
+    const sem = $("#mtipo").value === "sem dano";
+    const d = { peca, lado: $("#mlado").value, material: $("#mmat").value, tipo_dano: $("#mtipo").value, severidade: $("#msev").value, pintura_danificada: !sem && $("#mpint").checked, vinco_ou_dobra: !sem && $("#mvinco").checked };
+    Promise.resolve(onAdd(d)).then((ok) => { if (ok !== false) { $("#mpeca").value = ""; $("#mvinco").checked = false; $("#mpeca").focus(); } });
+  };
+  $("#mpeca").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#madd").click(); } });
+  return carregarVocab().then((r) => {
+    $("#mvocab").innerHTML = (r.vocabulario || []).map((p) => `<option value="${esc(p)}">`).join("");
+    return r;
+  });
+}
+
 // ================================================================
 // editor do orçamento
 // ================================================================
@@ -570,7 +587,12 @@ async function telaEditor(id) {
       <thead><tr><th>Peça</th><th>Lado</th><th>Decisão</th><th>Pinta</th><th>Funil. h</th><th>Pint. h</th><th>R&amp;I h</th><th>Outras h</th><th>Peça R$</th><th>Código</th><th>Confiança</th><th>Por quê</th><th></th></tr></thead>
       <tbody id="corpo"></tbody>
     </table></div>
-    <div class="acoes nao-imprime"><button class="btn" id="add" ${podeEditar ? "" : "disabled"}>Adicionar item</button></div>
+    ${podeEditar ? `<div class="add-peca nao-imprime">
+      <h3>Adicionar peça</h3>
+      <p class="small muted">Escolha a peça do histórico e o dano: o Altus calcula decisão, horas e valor como num orçamento novo.</p>
+      ${htmlMarcar("Calcular e adicionar")}
+      <div class="acoes"><button class="btn" id="add">Adicionar item em branco</button></div>
+    </div>` : ""}
   </section>
   <section class="painel">
     <div class="totais">
@@ -610,7 +632,7 @@ async function telaEditor(id) {
     const cls = conf >= 75 ? "hi" : conf >= 50 ? "md" : "lo";
     const v = (x) => (num(x) ? String(num(x)).replace(".", ",") : "");
     return `<tr data-i="${i}">
-      <td class="c-peca"><input data-k="peca" value="${esc(it.peca)}" aria-label="Peça"></td>
+      <td class="c-peca"><input data-k="peca" list="mvocab" autocomplete="off" value="${esc(it.peca)}" aria-label="Peça"></td>
       <td><select data-k="lado" aria-label="Lado"><option value="">—</option>${["ESQ", "DIR"].map((l) => `<option ${it.lado === l ? "selected" : ""}>${l}</option>`).join("")}</select></td>
       <td class="c-dec"><select data-k="decisao" class="d-${it.decisao}" aria-label="Decisão">${DEC.map((d) => `<option value="${d}" ${it.decisao === d ? "selected" : ""}>${DEC_NOME[d]}</option>`).join("")}</select></td>
       <td><input type="checkbox" data-k="pinta" ${it.pinta ? "checked" : ""} aria-label="Pinta"></td>
@@ -625,7 +647,7 @@ async function telaEditor(id) {
       <td><button class="x" aria-label="Remover item">×</button></td></tr>`;
   }
   function desenhar() {
-    $("#corpo").innerHTML = itens.length ? itens.map(linha).join("") : `<tr><td colspan="13" class="muted" style="padding:20px;text-align:center">Nenhum item. Use “Adicionar item” ou “Orçar com IA”.</td></tr>`;
+    $("#corpo").innerHTML = itens.length ? itens.map(linha).join("") : `<tr><td colspan="13" class="muted" style="padding:20px;text-align:center">Nenhum item. Use “Adicionar peça” abaixo ou “Orçar com IA”.</td></tr>`;
     $$("#corpo tr[data-i]").forEach((tr) => {
       const it = itens[+tr.dataset.i];
       $$("[data-k]", tr).forEach((el) => {
@@ -688,7 +710,19 @@ async function telaEditor(id) {
   regraEletrico();
   $("#ed-elet").onchange = (e) => { o.eletrificado = e.target.checked; marcar(); regraEletrico(); };
 
-  $("#add").onclick = () => { itens.push({ peca: "", lado: "", decisao: "RECUPERAR", pinta: true, hf: 0, hp: 0, hri: 0, hout: 0, valor: 0, codigo: "", conf: 1, just: "Incluído manualmente." }); marcar(); desenhar(); $$("#corpo .c-peca input").pop()?.focus(); };
+  if (podeEditar) ligarMarcar(async (d) => {
+    const b = $("#madd"); b.disabled = true; b.textContent = "Calculando…";
+    try {
+      const r = await api.funcao("orcar", { orcamento_id: o.id, danos: [d], calcular: true });
+      const novos = (r.itens || []).map((x) => ({ ...x, just: (x.just ? x.just + " " : "") + "(adicionado no orçamento)" }));
+      if (!novos.length) throw new Error("Não foi possível calcular essa peça.");
+      itens.push(...novos); marcar(); desenhar(); regraEletrico();
+      toast(`${novos[0].peca}${novos[0].lado ? " " + novos[0].lado : ""}: ${DEC_NOME[novos[0].decisao] || novos[0].decisao}.`);
+      return true;
+    } catch (ex) { toast(ex.message); return false; }
+    finally { b.disabled = false; b.textContent = "Calcular e adicionar"; }
+  }).catch(() => {});
+  if (podeEditar) $("#add").onclick = () => { itens.push({ peca: "", lado: "", decisao: "RECUPERAR", pinta: true, hf: 0, hp: 0, hri: 0, hout: 0, valor: 0, codigo: "", conf: 1, just: "Incluído manualmente." }); marcar(); desenhar(); $$("#corpo .c-peca input").pop()?.focus(); };
 
   async function salvar(finalizar = false) {
     const t = calcular(itens, tx, cortes, o.totais?.terceiros);

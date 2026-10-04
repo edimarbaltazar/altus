@@ -260,3 +260,8 @@ tbody tr.clicavel:hover td { background: color-mix(in srgb, var(--fita) 9%, tran
   .ed table { min-width: 0; font-size: 11px; }
   .ed td input, .ed td select { border: none; padding: 0; background: none; appearance: none; color: #000; }
 }
+
+/* adicionar peça no editor */
+.add-peca { border-top: 1px solid var(--linha); padding-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+.add-peca h3 { margin: 0; font-size: 15px; }
+.add-peca p { margin: 0; }

@@ -1,5 +1,6 @@
 // ALTUS · orcar
-// Recebe { orcamento_id }. Lê as fotos do orçamento, pede ao Claude para identificar
+// Recebe { orcamento_id } (fotos + IA), { orcamento_id, danos } (danos marcados) ou
+// { orcamento_id, danos, calcular: true } (só devolve os itens calculados). Com fotos, pede ao Claude para identificar
 // os danos, cruza com o histórico (ia_stats) e monta o orçamento sugerido.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -189,6 +190,8 @@ Deno.serve(async (req) => {
         }))
       : null;
     if (danosManuais && !danosManuais.length) return json({ erro: "Marque pelo menos um dano." }, 400);
+    const calcular = !!body.calcular && !!danosManuais;
+    if (calcular) orcId = ""; // erro no cálculo não mexe no status do orçamento
 
     const { data: orc } = await sb.from("orcamentos").select("*").eq("id", orcamento_id).single();
     if (!orc) return json({ erro: "Orçamento não encontrado." }, 404);
@@ -283,7 +286,7 @@ Responda SOMENTE com JSON:
     const obs: string[] = [];
     let verificar: string[] = (r1.suspeitas_ocultas ?? []).map(String);
     try {
-      if (!temIA) throw new Error("sem IA");
+      if (!temIA || calcular) throw new Error("sem IA");
       const r2 = await claude([{ type: "text", text: p2 }]);
       (r2.itens ?? []).forEach((o: Record<string, unknown>) => {
         const i = num(o.ref) - 1;
@@ -303,7 +306,7 @@ Responda SOMENTE com JSON:
     }
     itens.forEach(padraoIluminacao);
     const eletrificado = !!orc.eletrificado || ehEletrificado(orc.marca, orc.modelo, orc.versao);
-    if (eletrificado && itens.some((i) => i.decisao === "RECUPERAR" && ehPecaSoldada(i.peca)) && !itens.some((i) => strip(i.peca).toUpperCase().startsWith("DESENERGIZ"))) {
+    if (!calcular && eletrificado && itens.some((i) => i.decisao === "RECUPERAR" && ehPecaSoldada(i.peca)) && !itens.some((i) => strip(i.peca).toUpperCase().startsWith("DESENERGIZ"))) {
       itens.push({ peca: "DESENERGIZAÇÃO DO SISTEMA DE ALTA TENSÃO", lado: "", decisao: "SERVICO", pinta: false, hf: 0, hp: 0, hri: 0, hout: 0,
         valor: Number(of.valor_desenergizacao ?? 750) || 750, codigo: "", conf: 1, n: 0, peca_base: "DESENERGIZACAO",
         just: "Automático: veículo híbrido/elétrico com desamassado em peça soldada da carroceria." });
@@ -326,6 +329,9 @@ Responda SOMENTE com JSON:
       cortes: geral,
       taxas: orc.totais?.taxas ?? { fun: Number(of.taxa_funilaria), pin: Number(of.taxa_pintura), ri: Number(of.taxa_ri), out: Number(of.taxa_outras) },
     };
+
+    // só calcular itens para acrescentar a um orçamento já aberto (não grava)
+    if (calcular) return json({ itens: itensComCorte });
 
     await sb.from("orcamentos").update({
       status: "sugerido", origem: danosManuais ? "manual" : "ia", eletrificado, danos, itens: itensComCorte, totais, verificar: [...new Set(verificar)], observacoes: obs, modelo_ia: temIA ? MODEL : null, erro: null,
