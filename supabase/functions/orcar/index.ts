@@ -39,6 +39,21 @@ function matchVocab(name: string, vocab: string[]): string {
   }
   return bs >= 0.5 ? best : b;
 }
+// Peças de iluminação: na troca, padrão de 0,5 h de elétrica + 0,5 h de R&I
+const ILUMINACAO = /^(FAROL|LANTERNA|BRAKE LIGHT|PISCA|REPETIDOR|LUZ D[AEO])/;
+function padraoIluminacao(it: { peca: string; decisao: string; hri: number; hout: number; just: string }) {
+  if (it.decisao === "TROCAR" && ILUMINACAO.test(strip(norm(it.peca)))) {
+    it.hri = 0.5; it.hout = 0.5;
+    it.just = (it.just ? it.just + " " : "") + "Padrão: 0,5 h elétrica + 0,5 h R&I.";
+  }
+}
+// Apelidos de marca usados no dia a dia
+const MARCAS: Record<string, string> = {
+  GM: "CHEVROLET", "GENERAL MOTORS": "CHEVROLET", CHEV: "CHEVROLET", VW: "VOLKSWAGEN", VOLKS: "VOLKSWAGEN",
+  MERCEDES: "MERCEDES-BENZ", MB: "MERCEDES-BENZ", "MERCEDES BENZ": "MERCEDES-BENZ", "CITROËN": "CITROEN",
+  LANDROVER: "LAND ROVER", "GREAT WALL": "GWM", "CAOA CHERY": "CHERY", IVECO: "IVECO/FIAT",
+};
+const marcaPadrao = (m: string) => { const k = String(m ?? "").toUpperCase().trim(); return MARCAS[k] ?? k; };
 const num = (v: unknown) => { const n = parseFloat(String(v ?? "").replace(",", ".")); return Number.isFinite(n) ? n : 0; };
 const r5 = (v: number) => Math.round(v * 2) / 2;
 
@@ -216,7 +231,7 @@ lado = "ESQ", "DIR" ou "". material = METAL, PLASTICO, VIDRO ou OUTRO. tipo_dano
     const bases = danos.map((d) => matchVocab(d.peca, vocab));
     const stats: (Stats | null)[] = [];
     for (const b of bases) {
-      const { data } = await sb.rpc("ia_stats", { p_peca_base: b, p_modelo: orc.modelo ?? "", p_marca: orc.marca ?? "", p_oficina: of.id });
+      const { data } = await sb.rpc("ia_stats", { p_peca_base: b, p_modelo: orc.modelo ?? "", p_marca: marcaPadrao(orc.marca ?? ""), p_oficina: of.id });
       stats.push(data && data.n > 0 ? data as Stats : null);
     }
     const blocos = danos.map((d, i) => {
@@ -265,6 +280,7 @@ Responda SOMENTE com JSON:
       obs.push(temIA ? "A etapa de montagem da IA falhou; itens calculados só pelo histórico. (" + (e as Error).message + ")"
         : "Orçamento montado pelo histórico da base a partir dos danos marcados. Confira as horas e inclua os itens de remoção e instalação.");
     }
+    itens.forEach(padraoIluminacao);
     danos.forEach((d, i) => { if (d.fotos?.length && itens[i]) itens[i].just += ` (fotos ${d.fotos.join(", ")})`; });
     if (r1.qualidade_fotos) obs.push("Fotos: " + r1.qualidade_fotos);
 

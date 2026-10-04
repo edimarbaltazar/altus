@@ -16,6 +16,13 @@ const DEC_NOME = { TROCAR: "Trocar", RECUPERAR: "Recuperar", SO_PINTAR: "Só pin
 const STATUS_NOME = { rascunho: "Rascunho", analisando: "Analisando", sugerido: "Sugerido pela IA", finalizado: "Finalizado" };
 const OF_STATUS = { trial: "Período de teste", ativa: "Ativa", inadimplente: "Pagamento pendente", cancelada: "Cancelada" };
 const CORTE_PADRAO = { fun: 0.736, pin: 0.823, ri: 0.796, out: 0.745 };
+// Peças de iluminação: na troca, padrão de 0,5 h de elétrica + 0,5 h de R&I
+const ILUMINACAO = /^(FAROL|LANTERNA|BRAKE LIGHT|PISCA|REPETIDOR|LUZ D[AEO])/;
+const semAcento = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
+const MARCAS = { GM: "CHEVROLET", "GENERAL MOTORS": "CHEVROLET", CHEV: "CHEVROLET", VW: "VOLKSWAGEN", VOLKS: "VOLKSWAGEN",
+  MERCEDES: "MERCEDES-BENZ", MB: "MERCEDES-BENZ", "MERCEDES BENZ": "MERCEDES-BENZ", "CITROËN": "CITROEN",
+  LANDROVER: "LAND ROVER", "GREAT WALL": "GWM", "CAOA CHERY": "CHERY", IVECO: "IVECO/FIAT" };
+const marcaPadrao = (m) => { const k = String(m || "").toUpperCase().trim(); return MARCAS[k] || k || null; };
 
 let toastT;
 function toast(msg) {
@@ -371,7 +378,7 @@ function telaNovo() {
 
   const dadosForm = () => ({
     oficina_id: ctx.oficina.id, criado_por: ctx.user.id,
-    placa: $("#placa").value.replace(/-/g, "") || null, marca: $("#marca").value.trim().toUpperCase() || null,
+    placa: $("#placa").value.replace(/-/g, "") || null, marca: marcaPadrao($("#marca").value),
     modelo: $("#modelo").value.trim().toUpperCase() || null, versao: $("#versao").value.trim() || null, ano: $("#ano").value.trim() || null,
     cor: $("#cor").value.trim() || null, chassi: $("#chassi").value.trim().toUpperCase() || null,
     cliente_nome: $("#cliente").value.trim() || null, cliente_telefone: $("#telefone").value.trim() || null,
@@ -570,7 +577,12 @@ async function telaEditor(id) {
           else if (["hf", "hp", "hri", "hout", "valor"].includes(k)) it[k] = num(el.value);
           else if (k === "peca") it.peca = el.value.toUpperCase();
           else it[k] = el.value;
-          if (k === "decisao") el.className = "d-" + el.value;
+          if (k === "decisao") {
+            el.className = "d-" + el.value;
+            if (el.value === "TROCAR" && ILUMINACAO.test(semAcento(it.peca)) && !num(it.hri) && !num(it.hout)) {
+              it.hri = 0.5; it.hout = 0.5; marcar(); desenhar(); return;
+            }
+          }
           marcar(); totais();
         });
         if (!podeEditar) el.disabled = true;
