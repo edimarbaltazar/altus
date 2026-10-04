@@ -234,7 +234,7 @@ async function telaLista() {
   <div id="lista"><div class="carregando">Carregando orçamentos…</div></div>`);
   let dados = [];
   try {
-    dados = await api.rest.get(`orcamentos?select=id,numero,criado_em,placa,marca,modelo,ano,cliente_nome,seguradora,status,itens&oficina_id=eq.${ctx.oficina.id}&order=criado_em.desc&limit=300`);
+    dados = await api.rest.get(`orcamentos?select=id,numero,criado_em,placa,marca,modelo,ano,cliente_nome,seguradora,status,origem,itens,totais&oficina_id=eq.${ctx.oficina.id}&order=criado_em.desc&limit=300`);
   } catch (e) { $("#lista").innerHTML = `<div class="aviso erro">${esc(e.message)}</div>`; return; }
   const desenhar = (filtro = "") => {
     const f = filtro.toLowerCase();
@@ -248,7 +248,7 @@ async function telaLista() {
         <td class="num">${o.numero}</td><td class="num">${fmtData(o.criado_em)}</td><td><b>${esc(o.placa ?? "—")}</b></td>
         <td>${esc([o.marca, o.modelo, o.ano].filter(Boolean).join(" ") || "—")}</td><td>${esc(o.cliente_nome ?? "—")}</td><td>${esc(o.seguradora ?? "—")}</td>
         <td><span class="etiqueta e-${o.status}">${STATUS_NOME[o.status]}</span></td>
-        <td class="num" style="text-align:right">${o.itens?.length ? fmtR(calcular(o.itens, taxasOficina()).total) : "—"}</td></tr>`).join("")}
+        <td class="num" style="text-align:right">${o.itens?.length ? fmtR(calcular(o.itens, { ...taxasOficina(), ...(o.totais?.taxas || {}) }, CORTE_PADRAO, o.totais?.terceiros).total) : "—"}</td></tr>`).join("")}
       </tbody></table></div>${!lista.length ? `<p class="muted" style="padding:12px">Nada encontrado para “${esc(filtro)}”.</p>` : ""}`;
     $$("tr.clicavel").forEach((tr) => {
       const ir = () => (location.hash = "#/orcamento/" + tr.dataset.id);
@@ -274,7 +274,9 @@ async function comprimir(file) {
 function telaNovo() {
   const bloqueado = !oficinaAtiva();
   casca("novo", `
-  <div class="topo"><div><h1>Novo orçamento</h1><p class="muted">Placa, fotos e pronto. Os dados do cliente são opcionais.</p></div></div>
+  <div class="topo"><div><h1>Novo orçamento</h1><p class="muted">Placa, fotos e pronto. Os dados do cliente são opcionais.</p></div>
+    <div class="acoes"><button type="button" class="btn" id="xmlbtn" ${bloqueado ? "disabled" : ""}>Importar XML da seguradora</button><input type="file" id="xmlarq" accept=".xml,text/xml,application/xml" hidden></div></div>
+  <p class="erro-txt" id="xmlerro" hidden></p>
   <form class="painel" id="f" novalidate>
     <header><h2>Veículo</h2></header>
     <div class="placa-linha">
@@ -328,6 +330,25 @@ function telaNovo() {
       <button type="button" class="btn" id="manual" ${bloqueado ? "disabled" : ""}>Montar em branco</button>
     </div>
   </form>`);
+  $("#xmlbtn").onclick = () => $("#xmlarq").click();
+  $("#xmlarq").onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    const er = $("#xmlerro"); er.hidden = true;
+    const b = $("#xmlbtn"); b.disabled = true; b.textContent = "Lendo o XML…";
+    try {
+      const { lerXmlOrcamento } = await import("./xml.js");
+      const x = lerXmlOrcamento(await f.text());
+      const tx = { ...taxasOficina(), ...(x.totais.taxas || {}) };
+      const [o] = await api.rest.insert("orcamentos", {
+        oficina_id: ctx.oficina.id, criado_por: ctx.user.id, origem: "xml", status: "sugerido",
+        ...x.veiculo, marca: marcaPadrao(x.veiculo.marca), cliente_nome: x.cliente_nome, seguradora: x.seguradora, sinistro: x.sinistro,
+        itens: x.itens, observacoes: x.observacoes, verificar: [],
+        totais: { ...x.totais, taxas: tx, cortes: CORTE_PADRAO },
+      });
+      toast(`XML importado: ${x.itens.length} itens.`);
+      location.hash = "#/orcamento/" + o.id;
+    } catch (ex) { er.textContent = ex.message; er.hidden = false; b.disabled = false; b.textContent = "Importar XML da seguradora"; }
+  };
   const danosMarcados = [];
   const desenharDanos = () => {
     $("#mlista").innerHTML = danosMarcados.map((d, i) => `<li><span><b>${esc(d.peca)}${d.lado ? " " + d.lado : ""}</b> · ${esc(d.tipo_dano)}, ${d.severidade.toLowerCase()}${d.pintura_danificada ? ", pintura danificada" : ""}${d.vinco_ou_dobra ? ", com vinco" : ""}</span><button type="button" class="x" data-i="${i}" aria-label="Remover dano">×</button></li>`).join("");
@@ -447,8 +468,8 @@ function taxasOficina() {
   const o = ctx.oficina || {};
   return { fun: +o.taxa_funilaria || 54, pin: +o.taxa_pintura || 68, ri: +o.taxa_ri || 51, out: +o.taxa_outras || 51 };
 }
-function calcular(itens, tx, cortes = CORTE_PADRAO) {
-  const t = { hf: 0, hp: 0, hri: 0, hout: 0, ahf: 0, ahp: 0, ahri: 0, ahout: 0, pecas: 0, trocas: 0, recup: 0 };
+function calcular(itens, tx, cortes = CORTE_PADRAO, terceiros = 0) {
+  const t = { hf: 0, hp: 0, hri: 0, hout: 0, ahf: 0, ahp: 0, ahri: 0, ahout: 0, pecas: 0, trocas: 0, recup: 0, vrec: 0, terceiros: num(terceiros) };
   for (const it of itens) {
     const c = { ...cortes, ...(it.cut || {}) };
     t.hf += num(it.hf); t.hp += num(it.hp); t.hri += num(it.hri); t.hout += num(it.hout);
@@ -456,10 +477,11 @@ function calcular(itens, tx, cortes = CORTE_PADRAO) {
     t.ahri += num(it.hri) * Math.min(1, c.ri); t.ahout += num(it.hout) * Math.min(1, c.out);
     if (it.decisao === "TROCAR") { t.pecas += num(it.valor); t.trocas++; }
     if (it.decisao === "RECUPERAR") t.recup++;
+    t.vrec += num(it.vrec);
   }
   t.mo = t.hf * tx.fun + t.hp * tx.pin + t.hri * tx.ri + t.hout * tx.out;
   t.amo = t.ahf * tx.fun + t.ahp * tx.pin + t.ahri * tx.ri + t.ahout * tx.out;
-  t.total = t.mo + t.pecas; t.atotal = t.amo + t.pecas;
+  t.total = t.mo + t.pecas + t.vrec + t.terceiros; t.atotal = t.amo + t.pecas + t.vrec + t.terceiros;
   return t;
 }
 
@@ -592,7 +614,7 @@ async function telaEditor(id) {
     totais();
   }
   function totais() {
-    const t = calcular(itens, tx, cortes);
+    const t = calcular(itens, tx, cortes, o.totais?.terceiros);
     $("#resumo").textContent = `${itens.length} itens · ${t.trocas} trocar · ${t.recup} recuperar`;
     $("#totA").innerHTML = `<h3>Orçamento</h3>
       <div class="lt"><span>Funilaria</span><b>${fmtH(t.hf)} h · ${fmtR(t.hf * tx.fun)}</b></div>
@@ -600,7 +622,10 @@ async function telaEditor(id) {
       <div class="lt"><span>R&amp;I</span><b>${fmtH(t.hri)} h · ${fmtR(t.hri * tx.ri)}</b></div>
       <div class="lt"><span>Outras</span><b>${fmtH(t.hout)} h · ${fmtR(t.hout * tx.out)}</b></div>
       <div class="lt"><span>Peças (${t.trocas})</span><b>${fmtR(t.pecas)}</b></div>
-      <div class="lt total"><span>Total</span><b>${fmtR(t.total)}</b></div>`;
+      ${t.vrec ? `<div class="lt"><span>Recuperação negociada</span><b>${fmtR(t.vrec)}</b></div>` : ""}
+      ${t.terceiros ? `<div class="lt"><span>Serviços de terceiros</span><b>${fmtR(t.terceiros)}</b></div>` : ""}
+      <div class="lt total"><span>Total</span><b>${fmtR(t.total)}</b></div>
+      ${o.totais?.xml_total ? `<p class="small muted">No XML da seguradora: total ${fmtR(+o.totais.xml_total)}${o.totais.xml_franquia ? `, franquia ${fmtR(+o.totais.xml_franquia)}, liberado ${fmtR(+o.totais.xml_liberado)}` : ""}.</p>` : ""}`;
     $("#totB").innerHTML = `<h3>Provável aprovado pela seguradora</h3>
       <div class="lt"><span>Funilaria</span><b>${fmtH(t.ahf)} h</b></div>
       <div class="lt"><span>Pintura</span><b>${fmtH(t.ahp)} h</b></div>
@@ -615,7 +640,7 @@ async function telaEditor(id) {
   $("#add").onclick = () => { itens.push({ peca: "", lado: "", decisao: "RECUPERAR", pinta: true, hf: 0, hp: 0, hri: 0, hout: 0, valor: 0, codigo: "", conf: 1, just: "Incluído manualmente." }); marcar(); desenhar(); $$("#corpo .c-peca input").pop()?.focus(); };
 
   async function salvar(finalizar = false) {
-    const t = calcular(itens, tx, cortes);
+    const t = calcular(itens, tx, cortes, o.totais?.terceiros);
     await api.rest.update("orcamentos", `id=eq.${o.id}`, {
       itens: itens.filter((i) => i.peca?.trim()),
       totais: { ...(o.totais || {}), taxas: tx, cortes, total: t.total, mao_de_obra: t.mo, pecas: t.pecas, provavel_aprovado: t.atotal },
@@ -634,7 +659,7 @@ async function telaEditor(id) {
     catch (ex) { toast(ex.message); b.disabled = false; b.textContent = "Orçar com IA"; }
   });
   $("#copiar").onclick = async () => {
-    const t = calcular(itens, tx, cortes);
+    const t = calcular(itens, tx, cortes, o.totais?.terceiros);
     const L = [`ORÇAMENTO Nº ${o.numero} — ${ctx.oficina.nome}`, [o.placa, veiculo].filter(Boolean).join(" · "), ""];
     itens.forEach((it) => L.push(`${DEC_NOME[it.decisao].toUpperCase().padEnd(10)} ${it.peca}${it.lado ? " " + it.lado : ""}${it.pinta ? " + pintura" : ""} | fun ${fmtH(it.hf)}h pin ${fmtH(it.hp)}h R&I ${fmtH(it.hri)}h outras ${fmtH(it.hout)}h${it.decisao === "TROCAR" ? ` | peça ${it.valor ? fmtR(num(it.valor)) : "cotar"}${it.codigo ? " (" + it.codigo + ")" : ""}` : ""}`));
     L.push("", `Mão de obra ${fmtR(t.mo)} | Peças ${fmtR(t.pecas)} | TOTAL ${fmtR(t.total)}`);
