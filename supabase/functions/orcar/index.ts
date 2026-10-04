@@ -23,7 +23,7 @@ function iaBase(t: string) {
     .replace(/ (ESQUERDA|ESQUERDO|DIREITA|DIREITO|ESQ|DIR|LE|LD)(?= )/g, "");
   return s.replace(/\s+/g, " ").trim();
 }
-const strip = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+const strip = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 function matchVocab(name: string, vocab: string[]): string {
   const b = iaBase(name);
   const key = strip(b);
@@ -39,12 +39,14 @@ function matchVocab(name: string, vocab: string[]): string {
   }
   return bs >= 0.5 ? best : b;
 }
-// Peças de iluminação: na troca, padrão de 0,5 h de elétrica + 0,5 h de R&I
+// Peças de iluminação: avariada = troca, com padrão de 0,5 h de elétrica + 0,5 h de R&I
 const ILUMINACAO = /^(FAROL|LANTERNA|BRAKE LIGHT|PISCA|REPETIDOR|LUZ D[AEO])/;
-function padraoIluminacao(it: { peca: string; decisao: string; hri: number; hout: number; just: string }) {
-  if (it.decisao === "TROCAR" && ILUMINACAO.test(strip(norm(it.peca)))) {
-    it.hri = 0.5; it.hout = 0.5;
-    it.just = (it.just ? it.just + " " : "") + "Padrão: 0,5 h elétrica + 0,5 h R&I.";
+const ehIluminacao = (peca: string) => ILUMINACAO.test(strip(norm(peca)));
+function padraoIluminacao(it: { peca: string; decisao: string; hf: number; hri: number; hout: number; just: string }) {
+  if ((it.decisao === "TROCAR" || it.decisao === "RECUPERAR") && ehIluminacao(it.peca)) {
+    if (it.decisao === "TROCAR") { it.hf = 0; it.hri = 0.5; it.hout = 0.5; }
+    else { it.hri = Math.max(num(it.hri), 0.5); it.hout = Math.max(num(it.hout), 0.5); }
+    it.just = (it.just ? it.just + " " : "") + "Padrão iluminação: 0,5 h elétrica + 0,5 h R&I.";
   }
 }
 // Apelidos de marca usados no dia a dia
@@ -117,6 +119,7 @@ function regraLocal(d: Dano, base: string, st: Stats | null): Item {
   else if (pctT !== null && pctT > 0.6 && sev !== "LEVE") dec = "TROCAR";
   else if (dano.includes("risc") && sev === "LEVE") dec = "SO_PINTAR";
   else if (st && st.n > 0 && st.trocar + st.recuperar === 0) dec = "REMOVER_INSTALAR";
+  if (ehIluminacao(base)) dec = "TROCAR"; // farol/lanterna avariado não se desamassa: troca
   const pinta = !!d.pintura_danificada || (st?.pct_pinta ?? 0) > 50;
   const it: Item = {
     peca: base, lado: d.lado ?? "", decisao: dec, pinta, hf: 0, hp: 0, hri: 0, hout: 0, valor: 0, codigo: "",

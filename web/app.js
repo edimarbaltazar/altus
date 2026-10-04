@@ -17,7 +17,7 @@ const DEC_NOME = { TROCAR: "Trocar", RECUPERAR: "Recuperar", SO_PINTAR: "Só pin
 const STATUS_NOME = { rascunho: "Rascunho", analisando: "Analisando", sugerido: "Sugerido pela IA", finalizado: "Finalizado" };
 const OF_STATUS = { trial: "Período de teste", ativa: "Ativa", inadimplente: "Pagamento pendente", cancelada: "Cancelada" };
 const CORTE_PADRAO = { fun: 0.736, pin: 0.823, ri: 0.796, out: 0.745 };
-// Peças de iluminação: na troca, padrão de 0,5 h de elétrica + 0,5 h de R&I
+// Peças de iluminação: na troca ou reparo, mínimo de 0,5 h de elétrica + 0,5 h de R&I
 const ILUMINACAO = /^(FAROL|LANTERNA|BRAKE LIGHT|PISCA|REPETIDOR|LUZ D[AEO])/;
 const semAcento = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
 const MARCAS = { GM: "CHEVROLET", "GENERAL MOTORS": "CHEVROLET", CHEV: "CHEVROLET", VW: "VOLKSWAGEN", VOLKS: "VOLKSWAGEN",
@@ -638,10 +638,12 @@ async function telaEditor(id) {
           else it[k] = el.value;
           if (k === "decisao") {
             el.className = "d-" + el.value;
-            if (el.value === "RECUPERAR" && o.eletrificado) { marcar(); totais(); regraEletrico(); return; }
-            if (el.value === "TROCAR" && ILUMINACAO.test(semAcento(it.peca)) && !num(it.hri) && !num(it.hout)) {
-              it.hri = 0.5; it.hout = 0.5; marcar(); desenhar(); return;
+            if ((el.value === "TROCAR" || el.value === "RECUPERAR") && ILUMINACAO.test(semAcento(it.peca))) {
+              if (el.value === "TROCAR") it.hf = 0;
+              it.hri = Math.max(num(it.hri), 0.5); it.hout = Math.max(num(it.hout), 0.5);
+              marcar(); desenhar(); if (o.eletrificado) regraEletrico(); return;
             }
+            if (el.value === "RECUPERAR" && o.eletrificado) { marcar(); totais(); regraEletrico(); return; }
           }
           marcar(); totais();
         });
