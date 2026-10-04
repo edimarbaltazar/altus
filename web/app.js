@@ -17,7 +17,7 @@ const DEC_NOME = { TROCAR: "Trocar", RECUPERAR: "Recuperar", SO_PINTAR: "Só pin
 const STATUS_NOME = { rascunho: "Rascunho", analisando: "Analisando", sugerido: "Sugerido pela IA", finalizado: "Finalizado" };
 const OF_STATUS = { trial: "Período de teste", ativa: "Ativa", inadimplente: "Pagamento pendente", cancelada: "Cancelada" };
 const CORTE_PADRAO = { fun: 0.736, pin: 0.823, ri: 0.796, out: 0.745 };
-// Peças de iluminação: na troca ou reparo, mínimo de 0,5 h de elétrica + 0,5 h de R&I
+// Peças de iluminação: troca 0,5 h elétrica + 0,5 h R&I; recuperar no mínimo isso; só R&I 0,5 h
 const ILUMINACAO = /^(FAROL|LANTERNA|BRAKE LIGHT|PISCA|REPETIDOR|LUZ D[AEO])/;
 const semAcento = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
 const MARCAS = { GM: "CHEVROLET", "GENERAL MOTORS": "CHEVROLET", CHEV: "CHEVROLET", VW: "VOLKSWAGEN", VOLKS: "VOLKSWAGEN",
@@ -337,7 +337,7 @@ function telaNovo() {
       <label class="f" style="grid-column:span 2">Peça<input id="mpeca" list="mvocab" placeholder="PARALAMA DIANT" autocomplete="off"><datalist id="mvocab"></datalist></label>
       <label class="f">Lado<select id="mlado"><option value="">Central</option><option>ESQ</option><option>DIR</option></select></label>
       <label class="f">Material<select id="mmat"><option value="METAL">Metal</option><option value="PLASTICO">Plástico</option><option value="VIDRO">Vidro</option><option value="OUTRO">Outro</option></select></label>
-      <label class="f">Dano<select id="mtipo"><option>amassado</option><option>riscado</option><option>trincado</option><option>quebrado</option><option>rasgado</option><option>deformado</option><option>solto</option></select></label>
+      <label class="f">Dano<select id="mtipo"><option>amassado</option><option>riscado</option><option>trincado</option><option>quebrado</option><option>rasgado</option><option>deformado</option><option>solto</option><option value="sem dano">sem dano (só remover e instalar)</option></select></label>
       <label class="f">Gravidade<select id="msev"><option value="LEVE">Leve</option><option value="MEDIO" selected>Médio</option><option value="GRAVE">Grave</option></select></label>
       <label class="chk-l"><input type="checkbox" id="mpint" checked> Pintura danificada</label>
       <label class="chk-l"><input type="checkbox" id="mvinco"> Com vinco ou dobra</label>
@@ -390,7 +390,7 @@ function telaNovo() {
   $("#madd").onclick = () => {
     const peca = $("#mpeca").value.trim().toUpperCase();
     if (!peca) { $("#mpeca").focus(); return; }
-    danosMarcados.push({ peca, lado: $("#mlado").value, material: $("#mmat").value, tipo_dano: $("#mtipo").value, severidade: $("#msev").value, pintura_danificada: $("#mpint").checked, vinco_ou_dobra: $("#mvinco").checked });
+    danosMarcados.push({ peca, lado: $("#mlado").value, material: $("#mmat").value, tipo_dano: $("#mtipo").value, severidade: $("#msev").value, pintura_danificada: $("#mtipo").value !== "sem dano" && $("#mpint").checked, vinco_ou_dobra: $("#mtipo").value !== "sem dano" && $("#mvinco").checked });
     $("#mpeca").value = ""; $("#mvinco").checked = false; desenharDanos(); $("#mpeca").focus();
   };
   $("#mpeca").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#madd").click(); } });
@@ -638,9 +638,10 @@ async function telaEditor(id) {
           else it[k] = el.value;
           if (k === "decisao") {
             el.className = "d-" + el.value;
-            if ((el.value === "TROCAR" || el.value === "RECUPERAR") && ILUMINACAO.test(semAcento(it.peca))) {
-              if (el.value === "TROCAR") it.hf = 0;
-              it.hri = Math.max(num(it.hri), 0.5); it.hout = Math.max(num(it.hout), 0.5);
+            if (["TROCAR", "RECUPERAR", "REMOVER_INSTALAR"].includes(el.value) && ILUMINACAO.test(semAcento(it.peca))) {
+              if (el.value === "TROCAR") { it.hf = 0; it.hri = 0.5; it.hout = 0.5; }
+              else if (el.value === "RECUPERAR") { it.hri = Math.max(num(it.hri), 0.5); it.hout = Math.max(num(it.hout), 0.5); }
+              else { it.hf = 0; it.hp = 0; it.pinta = false; it.hri = 0.5; it.hout = 0; }
               marcar(); desenhar(); if (o.eletrificado) regraEletrico(); return;
             }
             if (el.value === "RECUPERAR" && o.eletrificado) { marcar(); totais(); regraEletrico(); return; }

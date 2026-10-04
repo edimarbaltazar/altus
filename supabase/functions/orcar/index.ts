@@ -39,15 +39,17 @@ function matchVocab(name: string, vocab: string[]): string {
   }
   return bs >= 0.5 ? best : b;
 }
-// Peças de iluminação: avariada = troca, com padrão de 0,5 h de elétrica + 0,5 h de R&I
+// Peças de iluminação (farol, lanterna, brake light, pisca, repetidor):
+//   troca = 0,5 h elétrica + 0,5 h R&I · recuperar = no mínimo 0,5 h elétrica + 0,5 h R&I · só R&I = 0,5 h R&I
 const ILUMINACAO = /^(FAROL|LANTERNA|BRAKE LIGHT|PISCA|REPETIDOR|LUZ D[AEO])/;
 const ehIluminacao = (peca: string) => ILUMINACAO.test(strip(norm(peca)));
-function padraoIluminacao(it: { peca: string; decisao: string; hf: number; hri: number; hout: number; just: string }) {
-  if ((it.decisao === "TROCAR" || it.decisao === "RECUPERAR") && ehIluminacao(it.peca)) {
-    if (it.decisao === "TROCAR") { it.hf = 0; it.hri = 0.5; it.hout = 0.5; }
-    else { it.hri = Math.max(num(it.hri), 0.5); it.hout = Math.max(num(it.hout), 0.5); }
-    it.just = (it.just ? it.just + " " : "") + "Padrão iluminação: 0,5 h elétrica + 0,5 h R&I.";
-  }
+function padraoIluminacao(it: { peca: string; decisao: string; pinta: boolean; hf: number; hp: number; hri: number; hout: number; just: string }) {
+  if (!ehIluminacao(it.peca)) return;
+  let txt = "";
+  if (it.decisao === "TROCAR") { it.hf = 0; it.hri = 0.5; it.hout = 0.5; txt = "0,5 h elétrica + 0,5 h R&I"; }
+  else if (it.decisao === "RECUPERAR") { it.hri = Math.max(num(it.hri), 0.5); it.hout = Math.max(num(it.hout), 0.5); txt = "0,5 h elétrica + 0,5 h R&I"; }
+  else if (it.decisao === "REMOVER_INSTALAR") { it.hf = 0; it.hp = 0; it.pinta = false; it.hri = 0.5; it.hout = 0; txt = "0,5 h R&I"; }
+  if (txt) it.just = (it.just ? it.just + " " : "") + `Padrão iluminação: ${txt}.`;
 }
 // Apelidos de marca usados no dia a dia
 const MARCAS: Record<string, string> = {
@@ -119,8 +121,14 @@ function regraLocal(d: Dano, base: string, st: Stats | null): Item {
   else if (pctT !== null && pctT > 0.6 && sev !== "LEVE") dec = "TROCAR";
   else if (dano.includes("risc") && sev === "LEVE") dec = "SO_PINTAR";
   else if (st && st.n > 0 && st.trocar + st.recuperar === 0) dec = "REMOVER_INSTALAR";
-  if (ehIluminacao(base)) dec = "TROCAR"; // farol/lanterna avariado não se desamassa: troca
-  const pinta = !!d.pintura_danificada || (st?.pct_pinta ?? 0) > 50;
+  if (ehIluminacao(base)) {
+    // iluminação: quebrado/trincado/grave = troca; riscado/amassado/deformado = recuperar
+    if (fragil || sev === "GRAVE") dec = "TROCAR";
+    else if (dec === "SO_PINTAR" || dec === "REMOVER_INSTALAR") dec = "RECUPERAR";
+  }
+  const semDano = /sem dano|solto/.test(dano) && (dano.includes("sem dano") || ehIluminacao(base));
+  if (semDano) dec = "REMOVER_INSTALAR"; // não danificou: só remover e instalar de novo
+  const pinta = dec !== "REMOVER_INSTALAR" && !ehIluminacao(base) && (!!d.pintura_danificada || (st?.pct_pinta ?? 0) > 50);
   const it: Item = {
     peca: base, lado: d.lado ?? "", decisao: dec, pinta, hf: 0, hp: 0, hri: 0, hout: 0, valor: 0, codigo: "",
     conf: d.confianca ?? 0.6, n: st?.n ?? 0, peca_base: base,
