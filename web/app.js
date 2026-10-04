@@ -1,4 +1,5 @@
 import * as api from "./api.js";
+import { ehEletrificado, aplicarDesenergizacao } from "./regras.js";
 
 // ================================================================
 // utilidades
@@ -11,8 +12,8 @@ const num = (v) => { const n = parseFloat(String(v ?? "").replace(/\./g, (m, i, 
 const fmtR = (v) => (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const fmtH = (v) => (Math.round((v || 0) * 10) / 10).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
 const fmtData = (d) => (d ? new Date(d).toLocaleDateString("pt-BR") : "—");
-const DEC = ["TROCAR", "RECUPERAR", "SO_PINTAR", "REMOVER_INSTALAR"];
-const DEC_NOME = { TROCAR: "Trocar", RECUPERAR: "Recuperar", SO_PINTAR: "Só pintar", REMOVER_INSTALAR: "R&I" };
+const DEC = ["TROCAR", "RECUPERAR", "SO_PINTAR", "REMOVER_INSTALAR", "SERVICO"];
+const DEC_NOME = { TROCAR: "Trocar", RECUPERAR: "Recuperar", SO_PINTAR: "Só pintar", REMOVER_INSTALAR: "R&I", SERVICO: "Serviço" };
 const STATUS_NOME = { rascunho: "Rascunho", analisando: "Analisando", sugerido: "Sugerido pela IA", finalizado: "Finalizado" };
 const OF_STATUS = { trial: "Período de teste", ativa: "Ativa", inadimplente: "Pagamento pendente", cancelada: "Cancelada" };
 const CORTE_PADRAO = { fun: 0.736, pin: 0.823, ri: 0.796, out: 0.745 };
@@ -291,6 +292,7 @@ function telaNovo() {
       <label class="f">Ano<input id="ano" inputmode="numeric" maxlength="9"></label>
       <label class="f">Cor<input id="cor"></label>
       <label class="f" style="grid-column:span 2">Chassi<input id="chassi"></label>
+      <label class="chk-l" style="grid-column:span 2"><input type="checkbox" id="eletrico"> Veículo híbrido ou elétrico</label>
     </div>
     <header><h2>Cliente e sinistro</h2></header>
     <div class="grid4">
@@ -339,16 +341,22 @@ function telaNovo() {
       const { lerXmlOrcamento } = await import("./xml.js");
       const x = lerXmlOrcamento(await f.text());
       const tx = { ...taxasOficina(), ...(x.totais.taxas || {}) };
+      const elet = ehEletrificado(x.veiculo.marca, x.veiculo.modelo, x.veiculo.versao);
+      aplicarDesenergizacao(x.itens, elet, ctx.oficina.valor_desenergizacao);
       const [o] = await api.rest.insert("orcamentos", {
         oficina_id: ctx.oficina.id, criado_por: ctx.user.id, origem: "xml", status: "sugerido",
         ...x.veiculo, marca: marcaPadrao(x.veiculo.marca), cliente_nome: x.cliente_nome, seguradora: x.seguradora, sinistro: x.sinistro,
-        itens: x.itens, observacoes: x.observacoes, verificar: [],
+        itens: x.itens, observacoes: x.observacoes, verificar: [], eletrificado: elet,
         totais: { ...x.totais, taxas: tx, cortes: CORTE_PADRAO },
       });
       toast(`XML importado: ${x.itens.length} itens.`);
       location.hash = "#/orcamento/" + o.id;
     } catch (ex) { er.textContent = ex.message; er.hidden = false; b.disabled = false; b.textContent = "Importar XML da seguradora"; }
   };
+  let eletricoManual = false;
+  const detectar = () => { if (!eletricoManual) $("#eletrico").checked = ehEletrificado($("#marca").value, $("#modelo").value, $("#versao").value); };
+  ["marca", "modelo", "versao"].forEach((k) => $("#" + k).addEventListener("input", detectar));
+  $("#eletrico").addEventListener("change", () => { eletricoManual = true; });
   const danosMarcados = [];
   const desenharDanos = () => {
     $("#mlista").innerHTML = danosMarcados.map((d, i) => `<li><span><b>${esc(d.peca)}${d.lado ? " " + d.lado : ""}</b> · ${esc(d.tipo_dano)}, ${d.severidade.toLowerCase()}${d.pintura_danificada ? ", pintura danificada" : ""}${d.vinco_ou_dobra ? ", com vinco" : ""}</span><button type="button" class="x" data-i="${i}" aria-label="Remover dano">×</button></li>`).join("");
@@ -394,6 +402,7 @@ function telaNovo() {
       const r = await api.funcao("placa", { placa: $("#placa").value });
       ["marca", "modelo", "versao", "ano", "cor", "chassi"].forEach((k) => { if (r[k]) $("#" + k).value = r[k]; });
       msg.textContent = "Dados preenchidos. Confira antes de seguir.";
+      detectar();
     } catch (e) { msg.textContent = e.message; }
   };
 
@@ -404,6 +413,7 @@ function telaNovo() {
     cor: $("#cor").value.trim() || null, chassi: $("#chassi").value.trim().toUpperCase() || null,
     cliente_nome: $("#cliente").value.trim() || null, cliente_telefone: $("#telefone").value.trim() || null,
     seguradora: $("#seguradora").value.trim() || null, sinistro: $("#sinistro").value.trim() || null,
+    eletrificado: $("#eletrico").checked,
   });
   const erro = (m) => { const e = $("#erro"); e.textContent = m; e.hidden = !m; };
   const passo = (n) => ["p1", "p2", "p3"].forEach((id, i) => ($("#" + id).className = "passo" + (i + 1 < n ? " ok" : i + 1 === n ? " on" : "")));
@@ -469,7 +479,7 @@ function taxasOficina() {
   return { fun: +o.taxa_funilaria || 54, pin: +o.taxa_pintura || 68, ri: +o.taxa_ri || 51, out: +o.taxa_outras || 51 };
 }
 function calcular(itens, tx, cortes = CORTE_PADRAO, terceiros = 0) {
-  const t = { hf: 0, hp: 0, hri: 0, hout: 0, ahf: 0, ahp: 0, ahri: 0, ahout: 0, pecas: 0, trocas: 0, recup: 0, vrec: 0, terceiros: num(terceiros) };
+  const t = { hf: 0, hp: 0, hri: 0, hout: 0, ahf: 0, ahp: 0, ahri: 0, ahout: 0, pecas: 0, trocas: 0, recup: 0, vrec: 0, servicos: 0, terceiros: num(terceiros) };
   for (const it of itens) {
     const c = { ...cortes, ...(it.cut || {}) };
     t.hf += num(it.hf); t.hp += num(it.hp); t.hri += num(it.hri); t.hout += num(it.hout);
@@ -478,10 +488,11 @@ function calcular(itens, tx, cortes = CORTE_PADRAO, terceiros = 0) {
     if (it.decisao === "TROCAR") { t.pecas += num(it.valor); t.trocas++; }
     if (it.decisao === "RECUPERAR") t.recup++;
     t.vrec += num(it.vrec);
+    if (it.decisao === "SERVICO") t.servicos += num(it.valor);
   }
   t.mo = t.hf * tx.fun + t.hp * tx.pin + t.hri * tx.ri + t.hout * tx.out;
   t.amo = t.ahf * tx.fun + t.ahp * tx.pin + t.ahri * tx.ri + t.ahout * tx.out;
-  t.total = t.mo + t.pecas + t.vrec + t.terceiros; t.atotal = t.amo + t.pecas + t.vrec + t.terceiros;
+  t.total = t.mo + t.pecas + t.vrec + t.terceiros + t.servicos; t.atotal = t.amo + t.pecas + t.vrec + t.terceiros + t.servicos;
   return t;
 }
 
@@ -516,6 +527,7 @@ async function telaEditor(id) {
         ${o.cliente_nome ? `<span>Cliente <b>${esc(o.cliente_nome)}</b></span>` : ""}
         ${o.seguradora ? `<span>Seguradora <b>${esc(o.seguradora)}</b>${o.sinistro ? ` · sinistro ${esc(o.sinistro)}` : ""}</span>` : ""}
         <span class="etiqueta e-${o.status}">${STATUS_NOME[o.status]}</span>
+        <label class="chk-l nao-imprime"><input type="checkbox" id="ed-elet" ${o.eletrificado ? "checked" : ""} ${podeEditar ? "" : "disabled"}> Híbrido ou elétrico</label>
       </div>
     </div>
     <div class="acoes nao-imprime">
@@ -601,6 +613,7 @@ async function telaEditor(id) {
           else it[k] = el.value;
           if (k === "decisao") {
             el.className = "d-" + el.value;
+            if (el.value === "RECUPERAR" && o.eletrificado) { marcar(); totais(); regraEletrico(); return; }
             if (el.value === "TROCAR" && ILUMINACAO.test(semAcento(it.peca)) && !num(it.hri) && !num(it.hout)) {
               it.hri = 0.5; it.hout = 0.5; marcar(); desenhar(); return;
             }
@@ -624,6 +637,7 @@ async function telaEditor(id) {
       <div class="lt"><span>Peças (${t.trocas})</span><b>${fmtR(t.pecas)}</b></div>
       ${t.vrec ? `<div class="lt"><span>Recuperação negociada</span><b>${fmtR(t.vrec)}</b></div>` : ""}
       ${t.terceiros ? `<div class="lt"><span>Serviços de terceiros</span><b>${fmtR(t.terceiros)}</b></div>` : ""}
+      ${t.servicos ? `<div class="lt"><span>Serviços</span><b>${fmtR(t.servicos)}</b></div>` : ""}
       <div class="lt total"><span>Total</span><b>${fmtR(t.total)}</b></div>
       ${o.totais?.xml_total ? `<p class="small muted">No XML da seguradora: total ${fmtR(+o.totais.xml_total)}${o.totais.xml_franquia ? `, franquia ${fmtR(+o.totais.xml_franquia)}, liberado ${fmtR(+o.totais.xml_liberado)}` : ""}.</p>` : ""}`;
     $("#totB").innerHTML = `<h3>Provável aprovado pela seguradora</h3>
@@ -635,14 +649,23 @@ async function telaEditor(id) {
       <div class="lt total"><span>Total</span><b>${fmtR(t.atotal)}</b></div>
       <p class="small muted">Estimativa pelos cortes que as seguradoras fizeram em orçamentos parecidos.</p>`;
   }
+  const regraEletrico = () => {
+    if (aplicarDesenergizacao(itens, o.eletrificado, ctx.oficina.valor_desenergizacao)) {
+      toast("Desenergização do sistema de alta tensão incluída automaticamente.");
+      if (podeEditar) marcar();
+      desenhar();
+    }
+  };
   desenhar();
+  regraEletrico();
+  $("#ed-elet").onchange = (e) => { o.eletrificado = e.target.checked; marcar(); regraEletrico(); };
 
   $("#add").onclick = () => { itens.push({ peca: "", lado: "", decisao: "RECUPERAR", pinta: true, hf: 0, hp: 0, hri: 0, hout: 0, valor: 0, codigo: "", conf: 1, just: "Incluído manualmente." }); marcar(); desenhar(); $$("#corpo .c-peca input").pop()?.focus(); };
 
   async function salvar(finalizar = false) {
     const t = calcular(itens, tx, cortes, o.totais?.terceiros);
     await api.rest.update("orcamentos", `id=eq.${o.id}`, {
-      itens: itens.filter((i) => i.peca?.trim()),
+      itens: itens.filter((i) => i.peca?.trim()), eletrificado: !!o.eletrificado,
       totais: { ...(o.totais || {}), taxas: tx, cortes, total: t.total, mao_de_obra: t.mo, pecas: t.pecas, provavel_aprovado: t.atotal },
     });
     if (finalizar) await api.rpc("finalizar_orcamento", { p_orcamento: o.id });
@@ -707,6 +730,11 @@ async function telaConfig() {
       <label class="f">Remoção e instalação<input id="tr" inputmode="decimal" value="${of.taxa_ri}"></label>
       <label class="f">Outras (tapeçaria, elétrica)<input id="to" inputmode="decimal" value="${of.taxa_outras}"></label>
     </div>
+    <header><h2>Serviços automáticos</h2></header>
+    <div class="grid4">
+      <label class="f" style="grid-column:span 2">Desenergização de híbrido/elétrico (R$)<input id="tdes" inputmode="decimal" value="${of.valor_desenergizacao ?? 750}"></label>
+    </div>
+    <p class="small muted">Incluída sozinha quando o veículo é híbrido ou elétrico e há desamassado em peça soldada da carroceria.</p>
     <p class="erro-txt" id="erro" hidden></p>
     ${dono ? `<div class="acoes"><button class="btn primario">Salvar dados da oficina</button></div>` : `<p class="small muted">Só o responsável pela oficina pode alterar estes dados.</p>`}
   </form>
@@ -719,7 +747,7 @@ async function telaConfig() {
       const [n] = await api.rest.update("oficinas", `id=eq.${of.id}`, {
         nome: $("#nome").value.trim(), cnpj: $("#cnpj").value.trim() || null, telefone: $("#tel").value.trim() || null,
         cidade: $("#cidade").value.trim() || null, uf: $("#uf").value.trim().toUpperCase() || null,
-        taxa_funilaria: num($("#tf").value), taxa_pintura: num($("#tp").value), taxa_ri: num($("#tr").value), taxa_outras: num($("#to").value),
+        taxa_funilaria: num($("#tf").value), taxa_pintura: num($("#tp").value), taxa_ri: num($("#tr").value), taxa_outras: num($("#to").value), valor_desenergizacao: num($("#tdes").value) || 750,
       });
       Object.assign(ctx.oficina, n); toast("Dados da oficina salvos.");
     } catch (ex) { $("#erro").textContent = ex.message; $("#erro").hidden = false; }

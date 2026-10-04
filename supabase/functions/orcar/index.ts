@@ -53,6 +53,16 @@ const MARCAS: Record<string, string> = {
   MERCEDES: "MERCEDES-BENZ", MB: "MERCEDES-BENZ", "MERCEDES BENZ": "MERCEDES-BENZ", "CITROËN": "CITROEN",
   LANDROVER: "LAND ROVER", "GREAT WALL": "GWM", "CAOA CHERY": "CHERY", IVECO: "IVECO/FIAT",
 };
+// Híbridos/elétricos: desenergização quando há desamassado em peça soldada da carroceria
+const TERMOS_ELETRIFICADO = /(^|[^A-Z])(HYBRID|HIBRIDO|HEV|PHEV|MHEV|BEV|EV|ELETRICO|ELECTRIC|E-TECH|E-TRON|E-POWER|RECHARGE|EQA|EQB|EQC|EQE|EQS|PLUG-IN)([^A-Z]|$)/;
+const MARCAS_ELETRIFICADAS = /^(BYD|TESLA|ZEEKR|NETA|JAC E|SERES)/;
+const MODELOS_ELETRIFICADOS = /(^|[^A-Z])(DOLPHIN|SEAL|YUAN|SONG|TAN|HAN|KING|SHARK|LEAF|BOLT|IONIQ|ID\.?[34]|ID\.?BUZZ|EX30|EX40|C40|I3|IX|IX1|IX3|TAYCAN|ORA|HAVAL H6|TANK 300|E-JS1|E-JS4|E-208|E-2008|KWID E|SPARK EUV|EQUINOX EV|BLAZER EV|MUSTANG MACH|ARIATTO|AION|TIGGO 7 PRO HYBRID|TIGGO 8 PRO HYBRID)([^A-Z0-9]|$)/;
+function ehEletrificado(...textos: (string | null | undefined)[]) {
+  const t = strip(textos.filter(Boolean).join(" ")).toUpperCase().replace(/\s+/g, " ").trim();
+  return !!t && (TERMOS_ELETRIFICADO.test(t) || MARCAS_ELETRIFICADAS.test(t) || MODELOS_ELETRIFICADOS.test(t));
+}
+const SOLDADAS = /^(LATERAL|PARALAMA TRAS|COLUNA|CAIXA DE RODA|CAIXA DA SOLEIRA|SOLEIRA|LONGARINA|PAINEL TRAS|PAINEL DIANT|ASSOALHO|TETO|TRAVESSA|AVENTAL|TORRE|ALOJAMENTO|CHASSI|CAIXA DE AR|QUADRO DO PARABRISA|ESTRUTURA|FECHAMENTO DA LATERAL|LATERAL EXTERNA)/;
+const ehPecaSoldada = (peca: string) => SOLDADAS.test(strip(norm(peca)));
 const marcaPadrao = (m: string) => { const k = String(m ?? "").toUpperCase().trim(); return MARCAS[k] ?? k; };
 const num = (v: unknown) => { const n = parseFloat(String(v ?? "").replace(",", ".")); return Number.isFinite(n) ? n : 0; };
 const r5 = (v: number) => Math.round(v * 2) / 2;
@@ -281,6 +291,12 @@ Responda SOMENTE com JSON:
         : "Orçamento montado pelo histórico da base a partir dos danos marcados. Confira as horas e inclua os itens de remoção e instalação.");
     }
     itens.forEach(padraoIluminacao);
+    const eletrificado = !!orc.eletrificado || ehEletrificado(orc.marca, orc.modelo, orc.versao);
+    if (eletrificado && itens.some((i) => i.decisao === "RECUPERAR" && ehPecaSoldada(i.peca)) && !itens.some((i) => strip(i.peca).toUpperCase().startsWith("DESENERGIZ"))) {
+      itens.push({ peca: "DESENERGIZAÇÃO DO SISTEMA DE ALTA TENSÃO", lado: "", decisao: "SERVICO", pinta: false, hf: 0, hp: 0, hri: 0, hout: 0,
+        valor: Number(of.valor_desenergizacao ?? 750) || 750, codigo: "", conf: 1, n: 0, peca_base: "DESENERGIZACAO",
+        just: "Automático: veículo híbrido/elétrico com desamassado em peça soldada da carroceria." });
+    }
     danos.forEach((d, i) => { if (d.fotos?.length && itens[i]) itens[i].just += ` (fotos ${d.fotos.join(", ")})`; });
     if (r1.qualidade_fotos) obs.push("Fotos: " + r1.qualidade_fotos);
 
@@ -301,7 +317,7 @@ Responda SOMENTE com JSON:
     };
 
     await sb.from("orcamentos").update({
-      status: "sugerido", origem: danosManuais ? "manual" : "ia", danos, itens: itensComCorte, totais, verificar: [...new Set(verificar)], observacoes: obs, modelo_ia: temIA ? MODEL : null, erro: null,
+      status: "sugerido", origem: danosManuais ? "manual" : "ia", eletrificado, danos, itens: itensComCorte, totais, verificar: [...new Set(verificar)], observacoes: obs, modelo_ia: temIA ? MODEL : null, erro: null,
     }).eq("id", orc.id);
     if (!danosManuais) await sb.from("uso_mensal").upsert({ oficina_id: of.id, mes, orcamentos_ia: (uso?.orcamentos_ia ?? 0) + 1, consultas_placa: uso?.consultas_placa ?? 0 });
 
