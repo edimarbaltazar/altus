@@ -95,25 +95,50 @@ window.addEventListener("hashchange", rotear);
 // ================================================================
 // casca
 // ================================================================
+const ICONES = {
+  orcamentos: '<path d="M5 4h14v16H5z M8 8h8 M8 12h8 M8 16h5"/>',
+  novo: '<path d="M12 5v14 M5 12h14"/>',
+  configuracoes: '<path d="M4 20V9l8-5 8 5v11 M9 20v-6h6v6"/>',
+  assinatura: '<path d="M3 7h18v11H3z M3 11h18 M7 15h4"/>',
+  admin: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/>',
+  sair: '<path d="M14 5h5v14h-5 M10 8l-4 4 4 4 M6 12h10"/>',
+};
+const icone = (k) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONES[k]}</svg>`;
+let barraRecolhida = false;
+try { barraRecolhida = localStorage.getItem("altus.barra") === "recolhida"; } catch { /* sem storage */ }
+
 function casca(ativo, html) {
   const of = ctx.oficina;
-  const link = (r, t) => `<a href="#/${r}" class="${ativo === r ? "ativo" : ""}">${t}</a>`;
+  const link = (r, t) => `<a href="#/${r}" class="${ativo === r ? "ativo" : ""}" title="${t}">${icone(r)}<span class="txt">${t}</span></a>`;
   app.innerHTML = `
-  <div class="casca">
+  <div class="casca${barraRecolhida ? " recolhida" : ""}">
     <aside class="barra">
-      <div class="marca">${MARCA_SVG}ALTUS</div>
+      <div class="topo-barra">
+        <div class="marca">${MARCA_SVG}<span class="txt">ALTUS</span></div>
+        <button type="button" class="recolher" id="recolher" aria-label="${barraRecolhida ? "Abrir menu" : "Recolher menu"}" title="${barraRecolhida ? "Abrir menu" : "Recolher menu"}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="${barraRecolhida ? "M9 6l6 6-6 6" : "M15 6l-6 6 6 6"}"/></svg>
+        </button>
+      </div>
       <nav aria-label="Principal">
         ${of ? link("orcamentos", "Orçamentos") + link("novo", "Novo orçamento") + link("configuracoes", "Oficina") + (ehDono() ? link("assinatura", "Assinatura") : "") : ""}
         ${ctx.admin ? link("admin", "Administração") : ""}
       </nav>
       <div class="rodape">
-        <span class="quem"><b>${esc(of?.nome ?? "")}</b><br>${esc(ctx.user?.email ?? "")}</span>
-        <button type="button" id="sair">Sair</button>
+        <span class="quem txt"><b>${esc(of?.nome ?? "")}</b><br>${esc(ctx.user?.email ?? "")}</span>
+        <button type="button" id="sair" title="Sair">${icone("sair")}<span class="txt">Sair</span></button>
       </div>
     </aside>
     <main class="conteudo">${avisoAssinatura()}${html}</main>
   </div>`;
   $("#sair").onclick = async () => { await api.sair(); ctx.user = null; location.hash = "#/entrar"; };
+  $("#recolher").onclick = () => {
+    barraRecolhida = !barraRecolhida;
+    try { localStorage.setItem("altus.barra", barraRecolhida ? "recolhida" : "aberta"); } catch { /* sem storage */ }
+    const c = $(".casca"); c.classList.toggle("recolhida", barraRecolhida);
+    const b = $("#recolher"); const t = barraRecolhida ? "Abrir menu" : "Recolher menu";
+    b.setAttribute("aria-label", t); b.title = t;
+    b.querySelector("path").setAttribute("d", barraRecolhida ? "M9 6l6 6-6 6" : "M15 6l-6 6 6 6");
+  };
 }
 function avisoAssinatura() {
   const of = ctx.oficina;

@@ -94,6 +94,23 @@ label.f { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font
 }
 
 /* ---------- casca do app ---------- */
+.casca { transition: grid-template-columns .18s ease; }
+.casca.recolhida { grid-template-columns: 68px minmax(0, 1fr); }
+.topo-barra { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.recolher { background: none; border: 1px solid color-mix(in srgb, var(--primer) 22%, transparent); color: var(--primer); border-radius: 6px; width: 30px; height: 30px; display: grid; place-items: center; cursor: pointer; flex: none; }
+.recolher:hover { background: color-mix(in srgb, var(--primer) 10%, transparent); }
+.recolher svg, .ico { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.barra nav a { display: flex; align-items: center; gap: 10px; }
+.barra .rodape button { display: inline-flex; align-items: center; gap: 8px; }
+.casca.recolhida .barra { padding-inline: 10px; align-items: center; }
+.casca.recolhida .barra .txt { display: none; }
+.casca.recolhida .topo-barra { flex-direction: column; gap: 14px; }
+.casca.recolhida .barra .marca { padding: 0; }
+.casca.recolhida .barra nav { width: 100%; }
+.casca.recolhida .barra nav a { justify-content: center; padding: 10px 0; }
+.casca.recolhida .barra nav a.ativo::before { left: -10px; }
+.casca.recolhida .barra .rodape { padding: 0; align-items: center; }
+@media (prefers-reduced-motion: reduce) { .casca { transition: none; } }
 .casca { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100vh; }
 .barra { background: var(--grafite); color: var(--primer); padding: 22px 14px; display: flex; flex-direction: column; gap: 22px; position: sticky; top: 0; height: 100vh; }
 .barra .marca { padding: 0 8px; }
@@ -111,7 +128,10 @@ label.f { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font
 .topo { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px 20px; }
 .topo p { margin-top: 6px; }
 @media (max-width: 860px) {
-  .casca { grid-template-columns: minmax(0,1fr); }
+  .casca, .casca.recolhida { grid-template-columns: minmax(0,1fr); }
+  .recolher { display: none; }
+  .casca.recolhida .barra .txt { display: inline; }
+  .casca.recolhida .barra .rodape .quem { display: none; }
   .barra { position: static; height: auto; padding: 14px 16px; gap: 12px; flex-direction: row; flex-wrap: wrap; align-items: center; }
   .barra nav { flex-direction: row; overflow-x: auto; width: 100%; order: 3; gap: 4px; }
   .barra nav a { white-space: nowrap; }
